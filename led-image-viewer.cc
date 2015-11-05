@@ -130,8 +130,10 @@ static void PrepareBuffers(const std::vector<Magick::Image> &images,
   }
 }
 
+/* runtime_seconds: 0 == forever */
 static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
-                             RGBMatrix *matrix) {
+                             RGBMatrix *matrix, uint runtime_seconds) {
+  uint elapsed_us = 0;
   signal(SIGTERM, InterruptHandler);
   signal(SIGINT, InterruptHandler);
   fprintf(stderr, "Display.\n");
@@ -139,9 +141,17 @@ static void DisplayAnimation(const std::vector<PreprocessedFrame*> &frames,
     const PreprocessedFrame *frame = frames[i % frames.size()];
     matrix->SwapOnVSync(frame->canvas());
     if (frames.size() == 1) {
-      sleep(86400);  // Only one image. Nothing to do.
+      if (runtime_seconds)
+      {
+        sleep(runtime_seconds);  // Only one image. Nothing to do.
+        break;
+      }
+      sleep(86400);
     } else {
       usleep(frame->delay_micros());
+      elapsed_us += frame->delay_micros();
+      if (runtime_seconds && elapsed_us >= (runtime_seconds * 1000000))
+        break;
     }
   }
 }
@@ -155,7 +165,8 @@ static int usage(const char *progname) {
           "\t-P <parallel> : For Plus-models or RPi2: parallel chains. 1..3. "
           "Default: 1\n"
           "\t-c <chained>  : Daisy-chained boards. Default: 1.\n"
-          "\t-d            : Run as daemon.\n");
+          "\t-d            : Run as daemon.\n"
+          "\t-t <seconds>  : Run for these number of seconds, then exit. Default: 0 (forever)\n");
   return 1;
 }
 
@@ -167,15 +178,17 @@ int main(int argc, char *argv[]) {
   int parallel = 1;
   int pwm_bits = -1;
   bool as_daemon = false;
+  uint runtime_seconds = 0;
 
   int opt;
-  while ((opt = getopt(argc, argv, "r:P:c:p:d")) != -1) {
+  while ((opt = getopt(argc, argv, "r:P:c:p:dt:")) != -1) {
     switch (opt) {
     case 'r': rows = atoi(optarg); break;
     case 'P': parallel = atoi(optarg); break;
     case 'c': chain = atoi(optarg); break;
     case 'p': pwm_bits = atoi(optarg); break;
     case 'd': as_daemon = true; break;
+    case 't': runtime_seconds = atoi(optarg); break;
     default:
       return usage(argv[0]);
     }
@@ -237,7 +250,7 @@ int main(int argc, char *argv[]) {
   std::vector<PreprocessedFrame*> frames;
   PrepareBuffers(sequence_pics, matrix, &frames);
 
-  DisplayAnimation(frames, matrix);
+  DisplayAnimation(frames, matrix, runtime_seconds);
 
   fprintf(stderr, "Caught signal. Exiting.\n");
 
